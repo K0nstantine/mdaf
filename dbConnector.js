@@ -1,0 +1,3 @@
+var DatabaseConnector = function(){
+	
+}
