@@ -37,15 +37,7 @@ DeviceManager.prototype.createDevice = function(id, name){
   	common for the devices in the group. Value - is the value of its property. 
  */
 DeviceManager.prototype.createDeviceGroup = function(name, desc, id){
-	if (!id){
-		var id = shortId.generate();
-	}
-	var deviceGroup = {
-		'name' : name,
-		'desc' : desc,
-		'id' : id,
-		'devices' : []
-	};
+	var deviceGroup = new (require('./deviceGroup'))(name, desc, id);
 	this.deviceGroupList.push(deviceGroup);
 	return deviceGroup;
 };
@@ -58,8 +50,7 @@ DeviceManager.prototype.createDeviceGroup = function(name, desc, id){
 DeviceManager.prototype.addToGroup = function(desc, device, name){
 	var group = this.getDeviceGroup(desc);
 	group = group ? group : this.createDeviceGroup(name, desc);
-	group.devices.push(device);
-	console.log(this.deviceGroupList)
+	group.addDevice(device);
 };
 
 
