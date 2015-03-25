@@ -10,13 +10,18 @@ var EventEmitter =  require('events').EventEmitter;
 var LongTermSession = function (id, conn){
 	this.id = id;
 	this.server = {};
-	this.currentBasicSession = new (require ('./basicSession'));
-	this.currentBasicSession.initialize(conn, this);
+	this.continuous = false;
+	this.currentBasicSession = null;
+
+	this.pendingUpdates = [];
+	
+	this.startBasicSession(conn)
 };
 
 util.inherits(LongTermSession, EventEmitter);
 
 LongTermSession.prototype.startBasicSession = function(conn){
+	this.currentBasicSession = new (require('./basicSession'));
 	this.currentBasicSession.initialize(conn, this);
 }
 
@@ -38,6 +43,7 @@ LongTermSession.prototype.send = function(message){
 					if (this.currentBasicSession){
 						this.currentBasicSession.send(message);
 					} else {
+						//if (this.continuous && message.mdaf.)
 						console.error ('The device is probably offline. Try again later.');
 					}
 				}.bind(this), 2000)
@@ -45,5 +51,19 @@ LongTermSession.prototype.send = function(message){
 		}.bind(this), 2000)
 	};
 };
+
+LongTermSession.prototype.endBasicSession = function(){
+	this.currentBasicSession = null;
+};
+
+LongTermSession.prototype.isConnected = function(){
+	if (this.currentBasicSession) {
+		return true;
+	} else {
+		return false;
+	};
+};
+
+
 
 module.exports = LongTermSession;

@@ -7,6 +7,7 @@ var mdaf = require('./mdaf');
 
 var SessionManager = function(){
 	this.authentication = null;
+	this.synchronization = null;
 	this.longTermSessionList = this.getFromStorage();
 	this.multiDeviceSessionList = [];
 	this.socket = null;
@@ -20,7 +21,7 @@ var SessionManager = function(){
  * users - data of the users, which could be authenticated.
  */
 
-SessionManager.prototype.start = function(server, options, authentication, users){
+SessionManager.prototype.start = function(server, options, authentication, users, synchronization){
 	this.createSocket(options);
 	this.server = server;
 	if (authentication){
@@ -72,41 +73,43 @@ SessionManager.prototype.setAuthenticationMechanism = function(authentication, u
 SessionManager.prototype.setConnectionHandlers = function (){
 	this.socket.on("connection", function(conn){
 		var ltsID = shortId.generate();
-    	conn.write("{\"ltsID\" : \""+ ltsID + "\"}");
+    	conn.write("{\"mdaf\" : \"ltsID\", \"ltsID\" : \""+ ltsID + "\"}");
     	conn.on('data', function(string){
     		var message = JSON.parse(string);
 			if (message.mdaf === 'ltsID') {   			
 					if (message.ltsID !== ltsID) {
 		    			var storedLts = this.getLongTermSession(message.ltsID);
-		    			console.log(storedLts);
 		    			if (storedLts){
-		    				var lts = new (require('./longTermSession'))(storedLts.id, conn);
-		    				conn.write("{\"authenticated\" : \"success\"}");
-		    				mdaf.emit('authenticated', lts);		    				
-		    				return;
+		    				if (storedLts.continuous){
+		    					conn.write ("{\"mdaf\" : \"synchronization\", \"synchronization\" : \"clientFirst\"}")
+		    					this.setClientFirstSynchronization(storedLts, conn);
+		    				} else {
+		    					this.onSynchronized(storedLts, conn);
+			    			};
+		    			} else {
+		    				conn.write("{\"mdaf\" : \"sessionRestored\", \"sessionRestored\" : \"failure\"}");
 		    			}
-		    			conn.write("{\"authenticated\" : \"failure\"}");
 		    		} else {
 		    			var lts = this.createLongTermSession(ltsID, conn);
 		    			switch (this.authentication.type) {
 		    				case 'challenge':
-		    					conn.write("{\"challenge\" : \"" + this.authentication.challenge + "\"}");
+		    					conn.write("{\"mdaf\" : \"challenge\", \"challenge\" : \"" + this.authentication.challenge + "\"}");
 		    					break;
 		    				default:
-		    					conn.write("{\"authenticated\" : \"success\"}");
+		    					conn.write("{\"mdaf\" : \"authenticated\", \"authenticated\" : \"success\"}");
 		    					mdaf.emit('authenticated', lts);
 		    			};
 		    		};
 		    	};
 		  	if (message.mdaf === 'logout'){
-		  		var lts = this.getLTSByConnection(conn.id);
-		  		mdaf.emit('logout', lts)
+		  		//var lts = this.getLTSByConnection(conn.id);
+		  		mdaf.emit('logout')
 		   		fs.truncateSync('storage/sessions.json', 0)
 		    };
     	}.bind(this));
     }.bind(this));
     this.socket.installHandlers(this.server, {prefix: '/socket'});
-}
+};
 
 
 /** Starts the sessionManager
@@ -130,7 +133,7 @@ SessionManager.prototype.setChallengeAuthentication = function(){
 						hmac.update(_this.authentication.challenge);
 		                var hash = cryptojs.enc.Hex.stringify(hmac.finalize());
 		                if (hash === auth.hmac){
-		                    conn.write("{\"authenticated\" : \"success\"}");
+		                    conn.write("{\"mdaf\" : \"authenticated\", \"authenticated\" : \"success\"}");
 		                    var lts = _this.getLTSByConnection(conn.id);
 		                  	mdaf.emit('authenticated', lts, user.username);
 		                };
@@ -139,7 +142,29 @@ SessionManager.prototype.setChallengeAuthentication = function(){
 		    };
 		});
 	});
+}
+//no message loses handling is set yet!!!
+SessionManager.prototype.setClientFirstSynchronization = function(lts, conn){
+	conn.on('data', function(string){
+		var message = JSON.parse(string);
+			if (message.mdaf === "synchronize"){
+				console.log('Client first synchronization is launched')
+				if (lts.pendingUpdates.length > 0){
+					for (var i = lts.pendingUpdates.length - 1; i > -1; i--){
+						conn.write(lts.pendingUpdates[i]);
+						lts.pendingUpdates.slice(i, 1);
+					}
+				}
+				this.onSynchronized(lts, conn);
+			};
+		}.bind(this))
 };
+
+SessionManager.prototype.onSynchronized = function(lts, conn){
+	conn.write("{\"mdaf\" : \"sessionRestored\", \"sessionRestored\" : \"success\"}");
+	mdaf.emit('sessionRestored', lts);
+	lts.startBasicSession(conn);
+}
 
 /** Creates longTermSession
  * ltsID - the id of the longTermSession
@@ -152,6 +177,23 @@ SessionManager.prototype.createLongTermSession = function(ltsID, conn){
     this.addLongTermSession(lts);
     return lts;
 };
+
+/** Create the continuous over multiple devices session (continuous MDS)
+ * devices - array of the devices to be grouped or the deviceGroup object
+ */
+
+SessionManager.prototype.createContinuousSession = function(devices){
+	var contSess = new (require('./continuousSession'));
+	var ltsList = [];
+	if (!Array.isArray(devices)){
+		devices = devices.devices;
+	}
+	devices.forEach(function(device){
+		var session = this.getLongTermSession(device.id);
+		ltsList.push(session);
+	}, this)
+	contSess.initialize(ltsList, devices);
+}
 
 /** Adds lts object to the list and writes the list to the file
  * lts - longTermSession object to be added
@@ -182,9 +224,9 @@ SessionManager.prototype.getFromStorage = function(){
 /** Returns the longTermSession object, that contains the specified connection object
  * conn - id of the SockJS connection object
  */
-SessionManager.prototype.getLTSByConnection = function (conn){
+SessionManager.prototype.getLTSByConnection = function (connId){
 	for (var i = 0; i < this.longTermSessionList.length; i++){
-		if (this.longTermSessionList[i].currentBasicSession.id === conn){
+		if (this.longTermSessionList[i].currentBasicSession.id === connId){
 			return(this.longTermSessionList[i]);
 		}
 	}
@@ -244,7 +286,5 @@ SessionManager.prototype.removeLongTermSession = function(lts){
 	} else {
 		console.error('Incorrect argument!')
 	}
-}
-
-
+};
 module.exports = SessionManager

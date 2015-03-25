@@ -19,12 +19,27 @@ BasicSession.prototype.initialize = function(connection, lts){
     this.id = connection.id;
     this.lts = lts;
     this.connection.on('data', function(string){
-        console.log('Works!')
         var message = JSON.parse(string);
         if (!message.mdaf){
             lts.emit('message', message);
         };
     }.bind(this));
+
+    this.connection.on('close', this.stop.bind(this));
+
+    this.lts.on('continuous', function() {
+        console.log('it is continuous!')
+        this.connection.on('data', function(string){
+            var message = JSON.parse(string);
+            if (message.mdaf === 'sharedUpdate'){
+                this.lts.emit ('sharedUpdate', message);
+            }            
+        }.bind(this));
+    }.bind(this));
+
+    if (this.lts.continuous){
+        this.lts.emit('continuous');
+    };
 };
 
 /** 
@@ -44,8 +59,11 @@ BasicSession.prototype.send = function(message) {
  	Function to stop current session
  */
 
-BasicSession.prototype.close = function(){
-	this.connection.end();
+BasicSession.prototype.stop = function(){
+    if (this.connection){
+        this.connection.end();
+    };
+    this.lts.endBasicSession();
 };
 
 module.exports = BasicSession;

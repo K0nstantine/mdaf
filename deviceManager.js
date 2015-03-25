@@ -51,6 +51,7 @@ DeviceManager.prototype.addToGroup = function(desc, device, name){
 	var group = this.getDeviceGroup(desc);
 	group = group ? group : this.createDeviceGroup(name, desc);
 	group.addDevice(device);
+	return group;
 };
 
 
