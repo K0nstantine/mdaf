@@ -6,6 +6,12 @@ function SessionConnector(){
 		'authState': 0
 	};
 
+  this.device = {
+    'id' : null,
+    'name' : null,
+    'type' : null
+  };
+
   this.pendingSharedMessages = [];
 
 	this.user = '';
@@ -21,40 +27,45 @@ function SessionConnector(){
 	this.onLoginError = null;
 	this.externalMessageHandler = null;
 
-	this.cachingFramework = new CachingFramework();
-}
+	this.storageManager = new StorageManager();
+};
 
-SessionConnector.prototype.initialize = function(server, authenticate, options) {
-	this.server = server;
-	if (authenticate){
-		this.user = authenticate.user;
-		this.password = authenticate.password;
-	} else {
+SessionConnector.prototype.initialize = function(server, options, name, password) {
+  this.server = server;
+  if (name && password){
+    this.user = name;
+    this.password = password;
+  } else {
     this.session.authState = this.authState.AUTHENTICATED;
   }
   if (options) {
-  	this.onConnected = options.onConnected;
-  	this.onDisconnected = options.onDisconnected;
-  	this.onNoConnection = options.onNoConnection;
+    this.onConnected = options.onConnected;
+    this.onDisconnected = options.onDisconnected;
+    this.onNoConnection = options.onNoConnection;
     this.onSessionRestored = options.onSessionRestored;
-  	this.onLoggedIn = options.onLoggedIn;
-  	this.onLoggedOut = options.onLoggedOut;
-  	this.onLoginError = options.onLoginError;
-  	this.externalMessageHandler = options.externalMessageHandler;
+    this.onLoggedIn = options.onLoggedIn;
+    this.onLoggedOut = options.onLoggedOut;
+    this.onLoginError = options.onLoginError;
+    this.externalMessageHandler = options.externalMessageHandler;
   }
-	this.connect();
+  this.connect();
+};
+
+SessionConnector.prototype.setUserCredentials = function(name, pass){
+  this.user = name;
+  this.password = pass;
 };
 
 SessionConnector.prototype.setOnConnectedHandler = function(handler){
-	this.onConnected = handler;
+  this.onConnected = handler;
 };
 
 SessionConnector.prototype.setOnDisconnectedHandler = function(handler){
-	this.onDisconnected = handler;
+  this.onDisconnected = handler;
 };
 
 SessionConnector.prototype.setOnNoConnectionHandler = function(handler){
-	this.onNoConnection = handler;
+  this.onNoConnection = handler;
 };
 
 SessionConnector.prototype.setOnSessionRestored = function(handler){
@@ -62,21 +73,132 @@ SessionConnector.prototype.setOnSessionRestored = function(handler){
 };
 
 SessionConnector.prototype.setOnLoggedInHandler = function(handler){
-	this.onLoggedIn = handler;
+  this.onLoggedIn = handler;
 };
 
 SessionConnector.prototype.setOnLoggedOutHandler = function(handler){
-	this.onLoggedOut = handler;
+  this.onLoggedOut = handler;
 };
 
 SessionConnector.prototype.setOnLoginErrorHandler = function(handler){
-	this.onLoginError = handler;
+  this.onLoginError = handler;
 };
 
 SessionConnector.prototype.setExternalMessageHandler = function(handler){
-	this.externalMessageHandler = handler;
+  this.externalMessageHandler = handler;
 };
- // Creating a socket and setting basic handlers for it.
+
+  // send arbitrary object o to server if a connection exists
+SessionConnector.prototype.send = function(o, onError) {
+  if (this.sock){
+    console.log("[SEND] " + JSON.stringify(o));
+    this.sock.send(JSON.stringify(o));
+  } else if (typeof onError === 'function') {
+      onError(o);
+  }
+};
+
+SessionConnector.prototype.isAuthenticated = function() {
+  return (this.session.authState === this.authState.AUTHENTICATED);
+};
+
+SessionConnector.prototype.isConnected = function() {
+  return this.sock ? true : false;
+};
+
+SessionConnector.prototype.breakSession = function() {
+  this.send({
+    'mdaf' : 'logout'
+  })
+  this.session.authState = this.authState.NOT_AUTHENTICATED;
+  try { this.sock.close(); } 
+  catch(error) { console.warn('connection already closed'); }
+  this.user = '';
+  this.password = '';
+  if (typeof this.onLoggedOut === 'function') {
+    this.onLoggedOut();
+  } else {
+    console.error('unable to call "ConnectionManager.onLoggedOut"');
+  }
+};
+
+/// MDS!!!
+
+// timeout property should be tested!!!
+SessionConnector.prototype.updateShared = function(message, timeout){
+  var envelopedMessage = {};
+  if (!message.hasOwnProperty('mdaf')){
+    var time = (Date.now) ? Date.now() : new Date.getTime(); 
+    envelopedMessage = {
+      'mdaf' : 'sharedUpdate',
+      'timestamp' : time,
+      'message' : message
+    };
+  } else {
+    envelopedMessage = message;
+  }
+  if (timeout){
+    envelopedMessage.timeout = timeout;
+  }
+  this.send(envelopedMessage, function(mes){
+    this.pendingSharedMessages.push(mes);
+    if (mes.timeout){
+        var _this = this;
+        setTimeout(function(){
+          var index = _this.pendingSharedMessages.indexOf(mes);
+          if (index > -1){
+            _this.pendingSharedMessages.slice(index, 1)
+          }
+        }, mes.timeout);
+      }
+  });
+}
+
+SessionConnector.prototype.sendCommand = function(message, target){
+  var envelopedMessage = {
+    'mdaf' : 'command',
+    'message' : message
+  }
+  if (target) envelopedMessage.sendTo = target;
+  this.send(envelopedMessage);
+}
+
+//// !!!!!!!! DeviceManagement
+
+SessionConnector.prototype.getDeviceInfo = function (){
+  return this.device;
+}
+
+SessionConnector.prototype.getUser = function(){
+  return this.user;
+}
+
+SessionConnector.prototype.setDeviceType = function(type){
+  this.device.type = type;
+  this.send({
+    'mdaf' : 'device',
+    'type' : type
+  })
+}
+
+SessionConnector.prototype.setDeviceName = function(name){
+  this.device.name = name;
+  this.send({
+    'mdaf' : 'device',
+    'name' : name
+  })
+}
+
+SessionConnector.prototype.setEnterpriseDevice = function(type){
+  this.storageManager.cache('enterprise', type)
+  this.storageManager.removeField('ltsID');
+}
+
+/*
+      FOR INNER USE ONLY!!!!!!!!!!!
+ */
+
+// Creating a socket and setting basic handlers for it.
 SessionConnector.prototype.connect = function() {
   var _this = this;
   this.sock = new SockJS(this.server + '/socket', null, { heartbeatTimeout: 6100 });
@@ -138,39 +260,6 @@ SessionConnector.prototype.connect = function() {
 
 };
 
-SessionConnector.prototype.updateShared = function(message){
-  var envelopedMessage = {};
-  if (!message.hasOwnProperty('mdaf')){
-    var time = (Date.now) ? Date.now() : new Date.getTime(); 
-    envelopedMessage = {
-      'mdaf' : 'sharedUpdate',
-      'timestamp' : time,
-      'message' : message
-    };
-  } else {
-    envelopedMessage = message;
-  }
-  this.send(envelopedMessage, function(mes){this.pendingSharedMessages.push(mes)});
-}
-
-SessionConnector.prototype.sendDeviceMessage = function(message, id){
-  var envelopedMessage = {
-    'sendTo' : id,
-    'message' : message
-  }
-  this.send(envelopedMessage);
-}
-
-  // send arbitrary object o to server if a connection exists
-SessionConnector.prototype.send = function(o, onError) {
-  if (this.sock){
-    console.log("[SEND] " + JSON.stringify(o));
-    this.sock.send(JSON.stringify(o));
-  } else if (typeof onError === 'function') {
-      onError(o);
-  }
-};
-
 /**
  * handle messages that are relevant to the connection and authentication
  * and pass everything else on to the message parser
@@ -180,17 +269,24 @@ SessionConnector.prototype.handleMessage = function(message) {
   if (message.hasOwnProperty('mdaf')){
     if (message.mdaf === 'ltsID'){
 
-      _this.cachingFramework.get('ltsID').then(function onResolve(ltsID){
+      _this.storageManager.get('ltsID').then(function onResolve(ltsID){
         _this.send({
           "mdaf" : 'ltsID',
           "ltsID" : ltsID})
         _this.session.id = ltsID;
       }, function onReject(){
-        _this.cachingFramework.cache('ltsID', message.ltsID)
-        _this.send({
-          "mdaf" : 'ltsID',
-          "ltsID" : message.ltsID});
+        _this.storageManager.cache('ltsID', message.ltsID)
+        var toSend = {
+              "mdaf" : 'ltsID',
+              "ltsID" : message.ltsID};
         _this.session.id = message.ltsID;
+ 
+        _this.storageManager.get('enterprise').then(function onResolve(type){
+          toSend.enterprise = type;
+          _this.send(toSend);
+        }, function onReject(){
+          _this.send(toSend);
+        })
       })
 
       //challenge authentication
@@ -198,10 +294,15 @@ SessionConnector.prototype.handleMessage = function(message) {
       this.challengeAuthenticate(message.challenge);
       //that's all what client needs for challenge authentication
 
+    } else if (message.mdaf === 'device'){
+      this.device.id = message.id;
+      this.device.owner = message.owner;
+      this.device.name = message.name;
     } else if (message.mdaf === 'authenticated'){
       if (message.authenticated === 'success'){
         this.session.authState = this.authState.AUTHENTICATED;
         console.log('Authentication successfull');
+        this.send
         // fire event handler for successfull login
         if (this.onLoggedIn)
           this.onLoggedIn();
@@ -223,29 +324,9 @@ SessionConnector.prototype.handleMessage = function(message) {
       }
     }
   } else {
-  //hand things ove to the general message parser
+  //hand things over to the general message parser
     this.externalMessageHandler(message);
   }
-};
-
-//message loss handling is nasty and dumm, but partially implemented:
-// if the message can't be sent - it is put into the queu again
-// function is recursively called, as long as all the pending messages
-// are not sent.
-SessionConnector.prototype.clientFirstSynchronization = function (){
-  if (this.pendingSharedMessages.length > 0) {
-    for (var i = this.pendingSharedMessages.length-1; i > -1; i--){
-      this.sendShared(this.pendingSharedMessages[i]);
-      this.pendingSharedMessages.slice(i, 1);
-    };
-    if (this.sock){
-      this.clientFirstSynchronization()
-    }
-  } else {
-    this.send ({
-      'mdaf' : 'synchronize'
-    });
-  };
 };
 
 SessionConnector.prototype.challengeAuthenticate = function(challenge) {
@@ -265,25 +346,22 @@ SessionConnector.prototype.challengeAuthenticate = function(challenge) {
   });
 };
 
-SessionConnector.prototype.logout = function() {
-  this.send({
-    'mdaf' : 'logout'
-  })
-  this.session.authState = this.authState.NOT_AUTHENTICATED;
-  try { this.sock.close(); } 
-  catch(error) { console.warn('connection already closed'); }
-  this.user = '';
-  this.password = '';
-  if (typeof this.onLoggedOut === 'function') {
-    this.onLoggedOut();
+//message loss handling is nasty and dumm, but partially implemented:
+// if the message can't be sent - it is put into the queu again
+// function is recursively called, as long as all the pending messages
+// are not sent.
+SessionConnector.prototype.clientFirstSynchronization = function (){
+  if (this.pendingSharedMessages.length > 0) {
+    for (var i = this.pendingSharedMessages.length-1; i > -1; i--){
+      this.updateShared(this.pendingSharedMessages[i]);
+      this.pendingSharedMessages.slice(i, 1);
+    };
+    if (this.sock){
+      this.clientFirstSynchronization()
+    }
   } else {
-    console.error('unable to call "ConnectionManager.onLoggedOut"');
-  }
+    this.send ({
+      'mdaf' : 'synchronize'
+    });
+  };
 };
-
-SessionConnector.prototype.isAuthenticated = function() {
-  return (this.session.authState === this.authState.AUTHENTICATED);
-};
-
-//            !!!MDS!!!
-

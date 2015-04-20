@@ -2,12 +2,19 @@ var fileServer = new (require('./webServer'));
 var mdaf = require('./mdaf')
 
 var users = [{username: 'johndoe', password: 'secret'},
-			 {username: 'karlmahrks', password: 'secret'}
+			 {username: 'karlmahrks', password: 'secret'},
+             {username: 'enterprise', password: 'secret'}
 ];
 
 fileServer.start();
-mdaf.start(fileServer.server, {heartbeat_delay : 1000}, 'challenge', users);
 
+
+mdaf.start(fileServer.server, {heartbeat_delay : 1000}, 'challenge', users, 'clientFirst');
+
+/* users = [ {username: 'johndoe', password: 'secret'},
+             {username: 'karlmahrks', password: 'secret'},
+             {username: 'enterprise', password: 'secret'} ]
+ */
 var setCommandHandlers = function(sess) {
     sess.on('message', function(message){
         switch (message.command) {
@@ -26,11 +33,16 @@ var setCommandHandlers = function(sess) {
 
 mdaf.on('authenticated', setCommandHandlers);
 //mdaf.on('sessionRestored', setCommandHandlers)
+
+
 mdaf.on('device', function(device){
     if (device.owner){
-        var group = mdaf.addToGroup({'username' : device.owner}, device);
+        var desc = {'username' : device.user}
+        var group = mdaf.addToGroup(device, desc);
         if (group.size === 2){
-            mdaf.createContinuousSession(group.devices);
-        }
+            mdaf.createMultiDeviceSession(group);
+        } 
     };
 });
+
+mdaf.setEnterpriseDevicePolicy({"common": 1000})

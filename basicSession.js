@@ -22,22 +22,31 @@ BasicSession.prototype.initialize = function(connection, lts){
         var message = JSON.parse(string);
         if (!message.mdaf){
             lts.emit('message', message);
+        } else if (message.mdaf === 'device'){
+            lts.emit('deviceMessage', message)
         };
     }.bind(this));
 
-    this.connection.on('close', this.stop.bind(this));
+    //this.connection.on('close', this.stop.bind(this));
 
     this.lts.on('continuous', function() {
         console.log('it is continuous!')
+        console.log(this.id);
         this.connection.on('data', function(string){
             var message = JSON.parse(string);
             if (message.mdaf === 'sharedUpdate'){
+                this.lts.emit('message', message.message);
                 this.lts.emit ('sharedUpdate', message);
-            }            
+            }
+            if (message.mdaf === 'command'){
+                this.lts.emit ('command', message);
+            } 
+
         }.bind(this));
     }.bind(this));
 
     if (this.lts.continuous){
+        console.log('no, it\'s here');
         this.lts.emit('continuous');
     };
 };
@@ -53,17 +62,6 @@ BasicSession.prototype.send = function(message) {
         console.error ('No connection established. The message can\'t be sent.');
         return;
     };
-};
-
-/** 
- 	Function to stop current session
- */
-
-BasicSession.prototype.stop = function(){
-    if (this.connection){
-        this.connection.end();
-    };
-    this.lts.endBasicSession();
 };
 
 module.exports = BasicSession;

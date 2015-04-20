@@ -5,24 +5,23 @@ var EventEmitter =  require('events').EventEmitter;
 /**     EMITTED EVENTS:
  message - message received from the client. Returns with a single parameter - JSON message.
 
- */
+ 		Internal use
+ continuous - lts becomes a part of the continuous session - __.
+  */
 
-var LongTermSession = function (id, conn){
+var LongTermSession = function (id){
 	this.id = id;
-	this.server = {};
 	this.continuous = false;
 	this.currentBasicSession = null;
-
 	this.pendingUpdates = [];
-	
-	this.startBasicSession(conn)
 };
 
 util.inherits(LongTermSession, EventEmitter);
 
-LongTermSession.prototype.startBasicSession = function(conn){
+LongTermSession.prototype.initialize = function(conn){
 	this.currentBasicSession = new (require('./basicSession'));
 	this.currentBasicSession.initialize(conn, this);
+	conn.on('close', this.endBasicSession.bind(this))
 }
 
 /** 
@@ -54,6 +53,7 @@ LongTermSession.prototype.send = function(message){
 
 LongTermSession.prototype.endBasicSession = function(){
 	this.currentBasicSession = null;
+	this.removeAllListeners('continuous');
 };
 
 LongTermSession.prototype.isConnected = function(){
