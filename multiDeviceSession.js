@@ -59,7 +59,7 @@ MultiDeviceSession.prototype.sendSharedUpdate = function (lts, message){
 		lts.send(toSend);
 	} else {
 		lts.pendingUpdates.push(toSend);
-		if (message.hasOwnProperty(timeout)){
+		if (message.hasOwnProperty('timeout')){
 			setTimeout(function(){
 				var index = lts.pendingUpdates.indexOf(toSend);
 				lts.pendingUpdates.slice(index, 1);

@@ -18,6 +18,8 @@ function SessionConnector(){
 	this.password = '';
 	this.authState = {'NOT_AUTHENTICATED' : 0, 'AUTHENTICATED' : 1, 'ERROR' : 2};
 
+  this.context = [];
+
 	this.onConnected = null;
 	this.onDisconnected = null;
 	this.onNoConnection = null;
@@ -113,6 +115,7 @@ SessionConnector.prototype.breakSession = function() {
   this.session.authState = this.authState.NOT_AUTHENTICATED;
   try { this.sock.close(); } 
   catch(error) { console.warn('connection already closed'); }
+  this.sock = null;
   this.user = '';
   this.password = '';
   if (typeof this.onLoggedOut === 'function') {
@@ -163,6 +166,47 @@ SessionConnector.prototype.sendCommand = function(message, target){
   this.send(envelopedMessage);
 }
 
+/* Adds data to the context of the session and 
+ sends update to the server
+ * key - key of the data to be added.
+ * value - value of the data to be added
+ */
+
+SessionConnector.prototype.addToContext = function(key, value){
+  this.context.push({key: value});
+  // sync with the server !!!!
+}
+
+/* Removes data from the context of the session and 
+ sends update to the server
+ * key - key of the data to be removed.
+ */
+
+SessionConnector.prototype.removeFromContext = function(key){
+  for (var i = 0; i < this.context.length; i++){
+    if (this.context[i][key] !== undefined){
+        this.context.slice(i, 1);
+        // sync with the server !!!!
+        return;
+      }
+  }
+};
+
+/* Returns the context of the session
+ */
+
+SessionConnector.prototype.getContext = function(){
+  return this.context;
+}
+
+/* Clears the context of the session and sends update to the server.
+ */
+
+SessionConnector.prototype.clearContext = function(){
+  this.context = [];
+  // sync with the server
+}
+
 //// !!!!!!!! DeviceManagement
 
 SessionConnector.prototype.getDeviceInfo = function (){
@@ -188,6 +232,10 @@ SessionConnector.prototype.setDeviceName = function(name){
     'name' : name
   })
 }
+
+/* Sets the current device as an enterprise owned.
+ * @param type - one of the types of enterprise-owned devices, defined on the server-side.
+ */
 
 SessionConnector.prototype.setEnterpriseDevice = function(type){
   this.storageManager.cache('enterprise', type)
@@ -230,8 +278,7 @@ SessionConnector.prototype.connect = function() {
   };
 
   this.sock.onclose = function() {
-
-    _this.sock = null;
+    if (_this.sock) _this.sock = null;
     console.log('connection to ' + _this.server + 'closed');
     if (typeof _this.onDisconnected === 'function') {
       _this.onDisconnected(); 
@@ -248,7 +295,7 @@ SessionConnector.prototype.connect = function() {
       } else {
         console.error('unable to call "onLoginError" handler');
       }
-    } else if (_this.session.id){
+    } else if (_this.session.authState === _this.authState.AUTHENTICATED && _this.session.id){
       if (typeof _this.onNoConnection === 'function') {
         _this.onNoConnection(); 
         _this.session.authState = _this.authState.NOT_AUTHENTICATED;

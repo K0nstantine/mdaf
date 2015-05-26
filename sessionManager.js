@@ -282,7 +282,7 @@ SessionManager.prototype.getLongTermSession = function(id){
 
 SessionManager.prototype.removeLongTermSession = function (id){
 	for (var i = 0; i < this.longTermSessionList.length; i++){
-			if (this.longTermSessionList[i].id === lts){
+			if (this.longTermSessionList[i].id === id){
 				this.longTermSessionList.splice(i, 1);
 				return;
 		}

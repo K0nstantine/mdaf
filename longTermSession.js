@@ -29,6 +29,7 @@ LongTermSession.prototype.initialize = function(conn){
  */
 
 LongTermSession.prototype.send = function(message){
+	console.log(this);
 	if (this.currentBasicSession){
 		this.currentBasicSession.send(message);
 	} else {
